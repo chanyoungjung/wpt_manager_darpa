@@ -92,10 +92,6 @@ void current_pose_callback(const nav_msgs::Odometry::ConstPtr &message) {
   current_heading_yaw_inGlobalCoor = global_yaw;
 }
 
-void batt_level_callback(const sensor_msgs::BatteryState::ConstPtr &message) {
-  cur_batt_level = message->percentage;
-}
-
 std::tuple<double, double, double>
 bodyCoordinateToGlobal(double body_x, double body_y, double body_z,
                        double altitude_limit = 2.5) {
@@ -338,7 +334,7 @@ int main(int argc, char **argv) {
     }
   } else {
     // random wpt mode
-    if (random_generation_coordination == "bodyCoordinate") {
+    if (random_generation_coordination == "inBodyCoordinate") {
       if (num_wpt > max_num_wpt)
         num_wpt = max_num_wpt;
 
@@ -378,7 +374,7 @@ int main(int argc, char **argv) {
         }
       }
 
-    } else if (random_generation_coordination == "globalCoordinate") {
+    } else if (random_generation_coordination == "inGlobalCoordinate") {
       if (num_wpt > max_num_wpt)
         num_wpt = max_num_wpt;
       for (int wpt_idx = 0; wpt_idx < num_wpt; wpt_idx++) {
