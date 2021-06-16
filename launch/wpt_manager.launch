@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+
+<launch>
+    <node pkg="wpt_manager" type="wpt_manager_node" name="wpt_manager_node" output="screen" respawn="false">
+        <param name="random_generation" type="bool" value="true" />
+        <param name="predefined_wpt_file_path" type="string" value="$(find wpt_manager)/wpt_file/test.csv" />
+        <param name="pub_wpt_topic_name" type="string" value="/scout/local_goal" />
+        <param name="sub_odom_topic_name" type="string" value="/odom_ndt_global_prediction" />
+        <param name="max_num_of_wpt" type="int" value="100" />
+        <param name="num_of_random_wpt" type="int" value="10" />
+        <param name="goal_arrived_dist" type="double" value="1.5" />
+        <param name="random_generation_coordination" type="string" value="bodyCoordinate" />
+        <!-- <param name="random_generation_coordination" type="string" value="globalCoordinate" /> -->
+        <param name="random_generation_body_x_min" type="double" value="4.0" />
+        <param name="random_generation_body_x_max" type="double" value="10.0" />
+        <param name="random_generation_body_y_min" type="double" value="-10.0" />
+        <param name="random_generation_body_y_max" type="double" value="10.0" />
+        <param name="random_generation_body_z_min" type="double" value="-0.5" />
+        <param name="random_generation_body_z_max" type="double" value="0.5" />
+        <param name="predefined_altitude_limit" type="double" value="2.5" />
+
+        <param name="random_generation_global_x_min" type="double" value="0.0" />
+        <param name="random_generation_global_x_max" type="double" value="100.0" />
+        <param name="random_generation_global_y_min" type="double" value="-30.0" />
+        <param name="random_generation_global_y_max" type="double" value="30.0" />
+        <param name="random_generation_global_z_min" type="double" value="1.0" />
+        <param name="random_generation_global_z_max" type="double" value="2.5" />
+
+
+    </node>
+</launch>
