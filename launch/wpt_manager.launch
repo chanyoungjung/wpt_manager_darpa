@@ -9,8 +9,8 @@
         <param name="max_num_of_wpt" type="int" value="100" />
         <param name="num_of_random_wpt" type="int" value="10" />
         <param name="goal_arrived_dist" type="double" value="1.5" />
-        <param name="random_generation_coordination" type="string" value="inBodyCoordinate" />
-        <!-- <param name="random_generation_coordination" type="string" value="inGlobalCoordinate" /> -->
+        <!-- <param name="random_generation_coordination" type="string" value="inBodyCoordinate" /> -->
+        <param name="random_generation_coordination" type="string" value="inGlobalCoordinate" />
         <param name="random_generation_body_x_min" type="double" value="4.0" />
         <param name="random_generation_body_x_max" type="double" value="10.0" />
         <param name="random_generation_body_y_min" type="double" value="-10.0" />

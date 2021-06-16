@@ -51,6 +51,7 @@ using namespace std;
 #define LANDING_VEL 0.5
 
 #define BATTERY_LOW_THRES 0.2
+#define TAKE_OFF_THRES 0.3
 
 geometry_msgs::Pose current_pose;
 double current_heading_yaw_inGlobalCoor;
@@ -428,7 +429,7 @@ int main(int argc, char **argv) {
       // /////////////
       double wpt_x = current_pose.position.x + 0.0;
       double wpt_y = current_pose.position.y + 0.0;
-      double wpt_z = current_pose.position.z + 1.2;
+      double wpt_z = 1.5;
 
       kaist_drone_msgs::BehaviorNGoal msg;
       geometry_msgs::PoseStamped pt_msg;
@@ -441,7 +442,7 @@ int main(int argc, char **argv) {
       msg.mode = msg.TAKEOFF;
       local_goal_publisher.publish(msg);
 
-      if (current_pose.position.z > wpt_z) {
+      if (wpt_z - current_pose.position.z < TAKE_OFF_THRES) {
         // /////////////
         // take-off done
         // /////////////
