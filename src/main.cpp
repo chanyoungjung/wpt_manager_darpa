@@ -269,7 +269,7 @@ int main(int argc, char **argv) {
   ROS_INFO("Initiated random_wpt_generator_node");
 
   ros::NodeHandle nh("~");
-  ros::Rate r(10);
+  ros::Rate r(50);
 
   bool random_wpt_generation_mode;
   string wpt_file_path;
@@ -429,7 +429,7 @@ int main(int argc, char **argv) {
       // /////////////
       double wpt_x = current_pose.position.x + 0.0;
       double wpt_y = current_pose.position.y + 0.0;
-      double wpt_z = 1.5;
+      double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
 
       kaist_drone_msgs::BehaviorNGoal msg;
       geometry_msgs::PoseStamped pt_msg;
@@ -452,9 +452,9 @@ int main(int argc, char **argv) {
       // ////////////
       // Landing mode
       // ////////////
-      double wpt_x = current_pose.position.x + 0.0;
-      double wpt_y = current_pose.position.y + 0.0;
-      double wpt_z = -100000000.0;
+      double wpt_x = std::get<0>(wpt_xyz_global_coor[current_wpt_idx]);
+      double wpt_y = std::get<1>(wpt_xyz_global_coor[current_wpt_idx]);
+      double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
 
       kaist_drone_msgs::BehaviorNGoal msg;
       geometry_msgs::PoseStamped pt_msg;
@@ -495,6 +495,8 @@ int main(int argc, char **argv) {
         current_wpt_idx++;
       }
     }
+
+    std::cout << " Travel info : " << current_wpt_idx << " / " << wpt_xyz_global_coor.size() << std::endl;
 
     ros::spinOnce();
     r.sleep();

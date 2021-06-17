@@ -2,7 +2,7 @@
 
 <launch>
     <node pkg="wpt_manager" type="wpt_manager_node" name="wpt_manager_node" output="screen" respawn="false">
-        <param name="random_generation" type="bool" value="true" />
+        <param name="random_generation" type="bool" value="false" />
         <param name="predefined_wpt_file_path" type="string" value="$(find wpt_manager)/wpt_file/test.csv" />
         <param name="pub_wpt_topic_name" type="string" value="/scout/behaviorNgoal" />
         <param name="sub_odom_topic_name" type="string" value="/odom_ndt_global_prediction" />
