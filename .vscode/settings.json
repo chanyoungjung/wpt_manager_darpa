@@ -1,0 +1,26 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/usrg/catkin_ws/devel_isolated/vision_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/uwb_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/spot_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/silvus_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/mission_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/core_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/roadmap_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/pose_graph_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/persistent_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/mobility_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/mobility_manager_drone/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/mesh_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/kaist_drone_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/hw_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/drone_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/artifact_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/darknet_ros_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/crm_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/copilot_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel_isolated/ackermann_msgs/lib/python3/dist-packages",
+        "/home/usrg/catkin_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages"
+    ]
+}
