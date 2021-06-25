@@ -54,6 +54,8 @@ using namespace std;
 #define TAKE_OFF_THRES 0.3
 
 geometry_msgs::Pose current_pose;
+geometry_msgs::PoseStamped rviz_goal_pose;
+std::vector<geometry_msgs::PoseStamped> vec_rviz_goals;
 double current_heading_yaw_inGlobalCoor;
 int random_cnt = 0;
 std::vector<std::tuple<double, double, double>> wpt_xyz_global_coor;
@@ -68,6 +70,11 @@ enum FLIGHT_SERVICE_TYPE {
   PATH_FLIGHT,
   HOVERING
 };
+
+void rviz_goal_callback(const geometry_msgs::PoseStamped::ConstPtr &message) {
+  rviz_goal_pose = *message;
+  vec_rviz_goals.push_back(rviz_goal_pose);
+}
 
 void current_pose_callback(const nav_msgs::Odometry::ConstPtr &message) {
   current_pose.position.x = message->pose.pose.position.x;
@@ -264,6 +271,7 @@ parse3DCsvFile(string inputFileName) {
 
   return data;
 }
+
 int main(int argc, char **argv) {
   ros::init(argc, argv, "random_wpt_generator");
   ROS_INFO("Initiated random_wpt_generator_node");
@@ -275,6 +283,7 @@ int main(int argc, char **argv) {
   string wpt_file_path;
   string wpt_topic_name;
   string odom_topic_name;
+  string rviz_goal_topic_name;
   int max_num_wpt;
   int num_wpt;
   string random_generation_coordination;
@@ -287,10 +296,14 @@ int main(int argc, char **argv) {
       random_generation_global_y_min, random_generation_global_y_max,
       random_generation_global_z_min, random_generation_global_z_max;
 
+  double conop_takeoff_x, conop_takeoff_y, conop_takeoff_z,
+      conop_flight_fixed_z;
+
   nh.getParam("random_generation", random_wpt_generation_mode);
   nh.getParam("predefined_wpt_file_path", wpt_file_path);
   nh.getParam("pub_wpt_topic_name", wpt_topic_name);
   nh.getParam("sub_odom_topic_name", odom_topic_name);
+  nh.getParam("sub_rviz_goal_topic_name", rviz_goal_topic_name);
   nh.getParam("max_num_of_wpt", max_num_wpt);
   nh.getParam("num_of_random_wpt", num_wpt);
   nh.getParam("predefined_altitude_limit", altitude_limit);
@@ -309,8 +322,11 @@ int main(int argc, char **argv) {
   nh.getParam("random_generation_global_z_min", random_generation_global_z_min);
   nh.getParam("random_generation_global_z_max", random_generation_global_z_max);
 
-  // ros::Publisher local_random_goalAction_publisher =
-  // nh.advertise<std_msgs::Float32MultiArray>("/scout/GoalAction", 10);
+  nh.getParam("conop_takeoff_z", conop_takeoff_z);
+  nh.getParam("conop_flight_fixed_z", conop_flight_fixed_z);
+
+  ros::Subscriber rviz_goal_pose_subscriber =
+      nh.subscribe(rviz_goal_topic_name, 10, rviz_goal_callback);
 
   vector<vector<double>> wpt_xy;
 
@@ -403,6 +419,18 @@ int main(int argc, char **argv) {
                     << std::endl;
         }
       }
+    } else if (random_generation_coordination == "conops") {
+      std::cout << "WPT RANDOM / GENERATION IN RVIZ GLOBAL COORDINATE"
+                << std::endl;
+      std::cout << "TAKE OFF POINT : X "
+                << "current pose x"
+                << " " << std::endl;
+      std::cout << "TAKE OFF POINT : Y "
+                << "current pose y"
+                << " " << std::endl;
+      std::cout << "TAKE OFF POINT : Z " << conop_takeoff_z << " " << std::endl;
+      std::cout << "TAKE OFF POINT : FIXED ALTITUDE " << conop_flight_fixed_z
+                << " " << std::endl;
     } else {
       wpt_xyz_global_coor.clear();
       std::cout << "RANDOM WPT GENERATION COORDINATION NAME IS WRONG"
@@ -423,80 +451,148 @@ int main(int argc, char **argv) {
   int current_wpt_idx = 0;
   while (ros::ok()) {
 
-    if (current_wpt_idx == 0) {
-      // /////////////
-      // Take-off mode
-      // /////////////
-      double wpt_x = current_pose.position.x + 0.0;
-      double wpt_y = current_pose.position.y + 0.0;
-      double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
-
-      kaist_drone_msgs::BehaviorNGoal msg;
-      geometry_msgs::PoseStamped pt_msg;
-      pt_msg.header.stamp = ros::Time::now();
-      pt_msg.header.frame_id = "odom";
-      pt_msg.pose.position.x = wpt_x;
-      pt_msg.pose.position.y = wpt_y;
-      pt_msg.pose.position.z = wpt_z;
-      msg.goal_pt_in_global = pt_msg;
-      msg.mode = msg.TAKEOFF;
-      local_goal_publisher.publish(msg);
-
-      if (wpt_z - current_pose.position.z < TAKE_OFF_THRES) {
+    if (random_generation_coordination != "conops") {
+      if (current_wpt_idx == 0) {
         // /////////////
-        // take-off done
+        // Take-off mode
         // /////////////
-        current_wpt_idx++;
+        double wpt_x = current_pose.position.x + 0.0;
+        double wpt_y = current_pose.position.y + 0.0;
+        double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
+
+        if (random_generation_coordination == "conops") {
+          wpt_z = conop_flight_fixed_z;
+        }
+
+        kaist_drone_msgs::BehaviorNGoal msg;
+        geometry_msgs::PoseStamped pt_msg;
+        pt_msg.header.stamp = ros::Time::now();
+        pt_msg.header.frame_id = "odom";
+        pt_msg.pose.position.x = wpt_x;
+        pt_msg.pose.position.y = wpt_y;
+        pt_msg.pose.position.z = wpt_z;
+        msg.goal_pt_in_global = pt_msg;
+        msg.mode = msg.TAKEOFF;
+        local_goal_publisher.publish(msg);
+
+        if (wpt_z - current_pose.position.z < TAKE_OFF_THRES) {
+          // /////////////
+          // take-off done
+          // /////////////
+          current_wpt_idx++;
+        }
+      } else if (current_wpt_idx >= wpt_xyz_global_coor.size()) {
+        // ////////////
+        // Landing mode
+        // ////////////
+        double wpt_x = std::get<0>(wpt_xyz_global_coor[current_wpt_idx]);
+        double wpt_y = std::get<1>(wpt_xyz_global_coor[current_wpt_idx]);
+        double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
+
+        kaist_drone_msgs::BehaviorNGoal msg;
+        geometry_msgs::PoseStamped pt_msg;
+        pt_msg.header.stamp = ros::Time::now();
+        pt_msg.header.frame_id = "odom";
+        pt_msg.pose.position.x = wpt_x;
+        pt_msg.pose.position.y = wpt_y;
+        pt_msg.pose.position.z = wpt_z;
+        msg.goal_pt_in_global = pt_msg;
+        msg.mode = msg.LAND;
+        local_goal_publisher.publish(msg);
+      } else {
+        // /////////////
+        // WPT following
+        // /////////////
+        double wpt_x = std::get<0>(wpt_xyz_global_coor[current_wpt_idx]);
+        double wpt_y = std::get<1>(wpt_xyz_global_coor[current_wpt_idx]);
+        double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
+
+        kaist_drone_msgs::BehaviorNGoal msg;
+        geometry_msgs::PoseStamped pt_msg;
+        pt_msg.header.stamp = ros::Time::now();
+        pt_msg.header.frame_id = "odom";
+        pt_msg.pose.position.x = wpt_x;
+        pt_msg.pose.position.y = wpt_y;
+        pt_msg.pose.position.z = wpt_z;
+        msg.goal_pt_in_global = pt_msg;
+        msg.mode = msg.WPT_FOLLOWING;
+        local_goal_publisher.publish(msg);
+
+        double dist_goal_to_robot =
+            sqrt(pow(wpt_x - current_pose.position.x, 2) +
+                 pow(wpt_y - current_pose.position.y, 2) +
+                 pow(wpt_z - current_pose.position.z, 2));
+
+        if (dist_goal_to_robot < goal_arrived_boundary) {
+          // ///////////
+          // WPT arrived
+          // ///////////
+          current_wpt_idx++;
+        }
       }
-    } else if (current_wpt_idx >= wpt_xyz_global_coor.size()) {
-      // ////////////
-      // Landing mode
-      // ////////////
-      double wpt_x = std::get<0>(wpt_xyz_global_coor[current_wpt_idx]);
-      double wpt_y = std::get<1>(wpt_xyz_global_coor[current_wpt_idx]);
-      double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
-
-      kaist_drone_msgs::BehaviorNGoal msg;
-      geometry_msgs::PoseStamped pt_msg;
-      pt_msg.header.stamp = ros::Time::now();
-      pt_msg.header.frame_id = "odom";
-      pt_msg.pose.position.x = wpt_x;
-      pt_msg.pose.position.y = wpt_y;
-      pt_msg.pose.position.z = wpt_z;
-      msg.goal_pt_in_global = pt_msg;
-      msg.mode = msg.LAND;
-      local_goal_publisher.publish(msg);
+      std::cout << " Travel info : " << current_wpt_idx << " / "
+                << wpt_xyz_global_coor.size() << std::endl;
     } else {
-      // /////////////
-      // WPT following
-      // /////////////
-      double wpt_x = std::get<0>(wpt_xyz_global_coor[current_wpt_idx]);
-      double wpt_y = std::get<1>(wpt_xyz_global_coor[current_wpt_idx]);
-      double wpt_z = std::get<2>(wpt_xyz_global_coor[current_wpt_idx]);
+      // rviz goal pose sub
+      if (current_wpt_idx == 0) {
+        // /////////////
+        // Take-off mode
+        // /////////////
+        double wpt_x = current_pose.position.x + 0.0;
+        double wpt_y = current_pose.position.y + 0.0;
+        double wpt_z = conop_takeoff_z;
 
-      kaist_drone_msgs::BehaviorNGoal msg;
-      geometry_msgs::PoseStamped pt_msg;
-      pt_msg.header.stamp = ros::Time::now();
-      pt_msg.header.frame_id = "odom";
-      pt_msg.pose.position.x = wpt_x;
-      pt_msg.pose.position.y = wpt_y;
-      pt_msg.pose.position.z = wpt_z;
-      msg.goal_pt_in_global = pt_msg;
-      msg.mode = msg.WPT_FOLLOWING;
-      local_goal_publisher.publish(msg);
+        kaist_drone_msgs::BehaviorNGoal msg;
+        geometry_msgs::PoseStamped pt_msg;
+        pt_msg.header.stamp = ros::Time::now();
+        pt_msg.header.frame_id = "odom";
+        pt_msg.pose.position.x = wpt_x;
+        pt_msg.pose.position.y = wpt_y;
+        pt_msg.pose.position.z = wpt_z;
+        msg.goal_pt_in_global = pt_msg;
+        msg.mode = msg.TAKEOFF;
+        local_goal_publisher.publish(msg);
 
-      double dist_goal_to_robot = sqrt(pow(wpt_x - current_pose.position.x, 2) +
-                                       pow(wpt_y - current_pose.position.y, 2));
+        if (wpt_z - current_pose.position.z < TAKE_OFF_THRES) {
+          // /////////////
+          // take-off done
+          // /////////////
+          current_wpt_idx++;
+        }
+      } else {
+        // /////////////
+        // WPT following
+        // /////////////
+        double wpt_x = rviz_goal_pose.pose.position.x;
+        double wpt_y = rviz_goal_pose.pose.position.y;
+        double wpt_z = conop_flight_fixed_z;
 
-      if (dist_goal_to_robot < goal_arrived_boundary) {
-        // ///////////
-        // WPT arrived
-        // ///////////
-        current_wpt_idx++;
+        kaist_drone_msgs::BehaviorNGoal msg;
+        geometry_msgs::PoseStamped pt_msg;
+        pt_msg.header.stamp = ros::Time::now();
+        pt_msg.header.frame_id = "odom";
+        pt_msg.pose.position.x = wpt_x;
+        pt_msg.pose.position.y = wpt_y;
+        pt_msg.pose.position.z = wpt_z;
+        msg.goal_pt_in_global = pt_msg;
+        msg.mode = msg.WPT_FOLLOWING;
+        local_goal_publisher.publish(msg);
+
+        double dist_goal_to_robot =
+            sqrt(pow(wpt_x - current_pose.position.x, 2) +
+                 pow(wpt_y - current_pose.position.y, 2) +
+                 pow(wpt_z - current_pose.position.z, 2));
+
+        if (dist_goal_to_robot < goal_arrived_boundary) {
+          // ///////////
+          // WPT arrived
+          // ///////////
+          current_wpt_idx++;
+        }
       }
+      std::cout << " Travel info : " << current_wpt_idx << " / "
+                << "??" << std::endl;
     }
-
-    std::cout << " Travel info : " << current_wpt_idx << " / " << wpt_xyz_global_coor.size() << std::endl;
 
     ros::spinOnce();
     r.sleep();

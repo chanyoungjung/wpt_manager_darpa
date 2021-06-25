@@ -6,11 +6,14 @@
         <param name="predefined_wpt_file_path" type="string" value="$(find wpt_manager)/wpt_file/test.csv" />
         <param name="pub_wpt_topic_name" type="string" value="/scout/behaviorNgoal" />
         <param name="sub_odom_topic_name" type="string" value="/odom_ndt_global_prediction" />
+        <param name="sub_rviz_goal_topic_name" type="string" value="/move_base_simple/goal" />
         <param name="max_num_of_wpt" type="int" value="100" />
         <param name="num_of_random_wpt" type="int" value="10" />
         <param name="goal_arrived_dist" type="double" value="1.5" />
         <!-- <param name="random_generation_coordination" type="string" value="inBodyCoordinate" /> -->
-        <param name="random_generation_coordination" type="string" value="inGlobalCoordinate" />
+        <!-- <param name="random_generation_coordination" type="string" value="inGlobalCoordinate" /> -->
+        <param name="random_generation_coordination" type="string" value="conops" />
+
         <param name="random_generation_body_x_min" type="double" value="4.0" />
         <param name="random_generation_body_x_max" type="double" value="10.0" />
         <param name="random_generation_body_y_min" type="double" value="-10.0" />
@@ -25,7 +28,8 @@
         <param name="random_generation_global_y_max" type="double" value="30.0" />
         <param name="random_generation_global_z_min" type="double" value="1.0" />
         <param name="random_generation_global_z_max" type="double" value="2.5" />
-
-
+        
+        <param name="conop_takeoff_z" type="double" value="1.5" />
+        <param name="conop_flight_fixed_z" type="double" value="1.5" />
     </node>
 </launch>
