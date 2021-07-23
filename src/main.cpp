@@ -58,6 +58,7 @@ geometry_msgs::Pose current_pose;
 geometry_msgs::PoseStamped rviz_goal_pose;
 std::vector<geometry_msgs::PoseStamped> vec_rviz_goals;
 kaist_drone_msgs::BehaviorNGoalArray rviz_goal_list;
+kaist_drone_msgs::BehaviorNGoalArray rviz_goal_list_before_filter;
 double current_heading_yaw_inGlobalCoor;
 int random_cnt = 0;
 std::vector<std::tuple<double, double, double>> wpt_xyz_global_coor;
@@ -87,6 +88,52 @@ void rviz_conops_callback(
   current_wpt_idx = 0;
   rviz_conops_callback_flg = true;
   std::cout << "rviz_conops_callback" << std::endl;
+}
+
+void rviz_global_planner_integration_conops_callback( // TODO: should be changed
+                                                      // (for the Kentucky conop
+                                                      // test)
+                                                      // July 22th
+    const kaist_drone_msgs::BehaviorNGoalArray::ConstPtr& message) {
+  // only waypoints for flying should be provided.
+  // ignore "TAKEOFF" and "LANDING" command
+  kaist_drone_msgs::BehaviorNGoal msg;
+  rviz_goal_list_before_filter = *message;
+  rviz_goal_list.header = rviz_goal_list_before_filter.header;
+
+  (int bg_idx = 0;
+   bg_idx < rviz_goal_list_before_filter.behavior_n_goal_array.size();
+   bg_idx++) {
+    if (rviz_goal_list_before_filter.behavior_n_goal_array[bg_idx].mode !=
+            msg.TAKEOFF &&
+        rviz_goal_list_before_filter.behavior_n_goal_array[bg_idx].mode !=
+            msg.LAND) {
+      rviz_goal_list.behavior_n_goal_array.push_back(
+          rviz_goal_list_before_filter.behavior_n_goal_array[bg_idx]);
+    }
+  }
+
+  int num_of_wpt_flight = rviz_goal_list.behavior_n_goal_array.size();
+
+  if (num_of_wpt_flight > 1) {
+    for (int reverse_wpt_idx = num_of_wpt_flight - 2; reverse_wpt_idx >= 0;
+         reverse_wpt_idx--) {
+      rviz_goal_list.behavior_n_goal_array.push_back(
+          rviz_goal_list.behavior_n_goal_array[reverse_wpt_idx]);
+    }
+  }
+
+  // ADD TAKEOFF AND landing at the begining and end.
+  msg.mode = msg.TAKEOFF;
+  rviz_goal_list.push_front(msg);
+
+  msg.mode = msg.LAND;
+  rviz_goal_list.push_back(msg);
+
+  current_wpt_idx = 0;
+  rviz_conops_callback_flg = true;
+  std::cout << "RVIZ_CONOPS_GLOBAL_MAPPER_INTEGRATION_CALLBACK_TEST VERSION"
+            << std::endl;
 }
 
 void current_pose_callback(const nav_msgs::Odometry::ConstPtr& message) {
@@ -472,8 +519,13 @@ int main(int argc, char** argv) {
   //////////////////////////////
   ros::Subscriber cur_pose_subscriber =
       nh.subscribe(odom_topic_name, 10, current_pose_callback);
-  ros::Subscriber rviz_conops_subscriber =
-      nh.subscribe("/scout/behaviorNgoalArray", 10, rviz_conops_callback);
+  // ros::Subscriber rviz_conops_subscriber =
+  //     nh.subscribe("/scout/behaviorNgoalArray", 10, rviz_conops_callback);
+  ros::Subscriber rviz_conops_subscriber = nh.subscribe(
+      "/scout/behaviorNgoalArray",
+      10,
+      rviz_global_planner_integration_conops_callback); //  for global mapper
+                                                        //  integration test
   ros::Publisher local_goal_publisher =
       nh.advertise<kaist_drone_msgs::BehaviorNGoal>(wpt_topic_name, 10);
 
