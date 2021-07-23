@@ -101,9 +101,9 @@ void rviz_global_planner_integration_conops_callback( // TODO: should be changed
   rviz_goal_list_before_filter = *message;
   rviz_goal_list.header = rviz_goal_list_before_filter.header;
 
-  (int bg_idx = 0;
-   bg_idx < rviz_goal_list_before_filter.behavior_n_goal_array.size();
-   bg_idx++) {
+  for (int bg_idx = 0;
+       bg_idx < rviz_goal_list_before_filter.behavior_n_goal_array.size();
+       bg_idx++) {
     if (rviz_goal_list_before_filter.behavior_n_goal_array[bg_idx].mode !=
             msg.TAKEOFF &&
         rviz_goal_list_before_filter.behavior_n_goal_array[bg_idx].mode !=
@@ -125,10 +125,11 @@ void rviz_global_planner_integration_conops_callback( // TODO: should be changed
 
   // ADD TAKEOFF AND landing at the begining and end.
   msg.mode = msg.TAKEOFF;
-  rviz_goal_list.push_front(msg);
+  rviz_goal_list.behavior_n_goal_array.insert(
+      rviz_goal_list.behavior_n_goal_array.begin(), msg);
 
   msg.mode = msg.LAND;
-  rviz_goal_list.push_back(msg);
+  rviz_goal_list.behavior_n_goal_array.push_back(msg);
 
   current_wpt_idx = 0;
   rviz_conops_callback_flg = true;
