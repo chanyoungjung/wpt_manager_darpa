@@ -2,11 +2,13 @@
 
 <launch>
     <node pkg="wpt_manager" type="wpt_manager_node" name="wpt_manager_node" output="screen" respawn="false">
+        <param name="conops_rviz" type="string" value="conops_rviz" />
         <param name="random_generation" type="bool" value="false" />
         <param name="predefined_wpt_file_path" type="string" value="$(find wpt_manager)/wpt_file/test.csv" />
         <param name="pub_wpt_topic_name" type="string" value="/scout/behaviorNgoal" />
         <param name="sub_odom_topic_name" type="string" value="/odom_ndt_global_prediction" />
         <param name="sub_rviz_goal_topic_name" type="string" value="/move_base_simple/goal" />
+        <param name="sub_rviz_conops_topic_name" type="string" value="/scout/behaviorNgoalArray" />
         <param name="max_num_of_wpt" type="int" value="100" />
         <param name="num_of_random_wpt" type="int" value="10" />
         <param name="goal_arrived_dist" type="double" value="1.5" />
