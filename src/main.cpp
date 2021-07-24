@@ -31,6 +31,8 @@
 #include <kaist_drone_msgs/BehaviorNGoal.h>
 #include <kaist_drone_msgs/BehaviorNGoalArray.h>
 
+#include <kaist_drone_msgs/ControlSet.h>
+
 using namespace std;
 #define DEG2RAD 0.0174533
 #define FIXED_Z 1.5
@@ -68,6 +70,14 @@ double cur_batt_level = 1; // 0~1
 int current_wpt_idx = 0;
 
 bool rviz_conops_callback_flg = false;
+
+vector<bool> all_path_canceled_moving_window;
+vector<double> timestamp_sec_moving_window;
+const double duration_of_window = 10; // in sec
+double all_path_canceled_percentage;
+
+const int min_size_of_window = 50;                    // size
+const double all_path_canceled_percentage_thres = 75; // percentage
 
 enum FLIGHT_SERVICE_TYPE {
   TAKE_OFF = 1,
@@ -135,6 +145,42 @@ void rviz_global_planner_integration_conops_callback( // TODO: should be changed
   rviz_conops_callback_flg = true;
   std::cout << "RVIZ_CONOPS_GLOBAL_MAPPER_INTEGRATION_CALLBACK_TEST VERSION"
             << std::endl;
+}
+
+void control_set_callback(
+    const kaist_drone_msgs::ControlSet::ConstPtr& message) {
+  kaist_drone_msgs::BehaviorNGoal msg;
+
+  if (rviz_goal_list.behavior_n_goal_array[current_wpt_idx].mode ==
+      msg.WPT_FOLLOWING) {
+    double current_time_sec = ros::Time::now().toSec();
+    if (all_path_canceled_moving_window.size() == 0) {
+      all_path_canceled_moving_window.push_back(false);
+      timestamp_sec_moving_window.push_back(current_time_sec);
+    } else {
+      double time_diff_sec = current_time_sec - timestamp_sec_moving_window[0];
+      if (time_diff_sec > duration_of_window) {
+        timestamp_sec_moving_window.erase(timestamp_sec_moving_window.begin());
+        all_path_canceled_moving_window.erase(
+            all_path_canceled_moving_window.begin());
+      } else {
+        timestamp_sec_moving_window.push_back(current_time_sec);
+        all_path_canceled_moving_window.push_back(message->is_all_cancled);
+      }
+    }
+    auto count = std::count(all_path_canceled_moving_window.begin(),
+                            all_path_canceled_moving_window.end(),
+                            true);
+
+    all_path_canceled_percentage =
+        double(count) / double(all_path_canceled_moving_window.size());
+
+  } else {
+    // clear time window
+    timestamp_sec_moving_window.clear();
+    all_path_canceled_moving_window.clear();
+    all_path_canceled_percentage = 0.0;
+  }
 }
 
 void current_pose_callback(const nav_msgs::Odometry::ConstPtr& message) {
@@ -342,6 +388,7 @@ int main(int argc, char** argv) {
   string rviz_conops_topic_name;
   string rviz_goal_topic_name;
   string rviz_conops;
+  string control_set_topic_name;
 
   int max_num_wpt;
   int num_wpt;
@@ -381,6 +428,7 @@ int main(int argc, char** argv) {
   nh.getParam("random_generation_global_y_max", random_generation_global_y_max);
   nh.getParam("random_generation_global_z_min", random_generation_global_z_min);
   nh.getParam("random_generation_global_z_max", random_generation_global_z_max);
+  nh.getParam("control_set_topic_name", control_set_topic_name);
 
   nh.getParam("conop_takeoff_z", conop_takeoff_z);
   nh.getParam("conop_flight_fixed_z", conop_flight_fixed_z);
@@ -520,6 +568,8 @@ int main(int argc, char** argv) {
   //////////////////////////////
   ros::Subscriber cur_pose_subscriber =
       nh.subscribe(odom_topic_name, 10, current_pose_callback);
+  ros::Subscriber cur_control_set_subscriber =
+      nh.subscribe(control_set_topic_name, 10, control_set_callback);
   // ros::Subscriber rviz_conops_subscriber =
   //     nh.subscribe("/scout/behaviorNgoalArray", 10, rviz_conops_callback);
   ros::Subscriber rviz_conops_subscriber = nh.subscribe(
@@ -743,6 +793,22 @@ int main(int argc, char** argv) {
             if (rviz_goal_list.behavior_n_goal_array.size() - 1 <
                 current_wpt_idx) {
               current_wpt_idx = rviz_goal_list.behavior_n_goal_array.size() - 1;
+            }
+          } else {
+            if (timestamp_sec_moving_window.size() > min_size_of_window &&
+                all_path_canceled_percentage >
+                    all_path_canceled_percentage_thres) {
+              // Stucked for a while
+              // change to the next wpt and clear
+              current_wpt_idx++;
+              if (rviz_goal_list.behavior_n_goal_array.size() - 1 <
+                  current_wpt_idx) {
+                current_wpt_idx =
+                    rviz_goal_list.behavior_n_goal_array.size() - 1;
+              }
+              all_path_canceled_moving_window.clear();
+              timestamp_sec_moving_window.clear();
+              all_path_canceled_percentage = 0.0;
             }
           }
         }
