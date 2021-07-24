@@ -339,6 +339,9 @@ int main(int argc, char** argv) {
 
   nh.getParam("conops_rviz", rviz_conops);
 
+  ros::Subscriber rviz_goal_pose_subscriber =
+      nh.subscribe(rviz_goal_topic_name, 10, rviz_goal_callback);
+
   vector<vector<double>> wpt_xy;
 
   if (rviz_conops == "conops_rviz") {
