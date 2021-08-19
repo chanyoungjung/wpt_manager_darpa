@@ -76,20 +76,20 @@ enum FLIGHT_SERVICE_TYPE {
   HOVERING
 };
 
-void rviz_goal_callback(const geometry_msgs::PoseStamped::ConstPtr& message) {
+void rviz_goal_callback(const geometry_msgs::PoseStamped::ConstPtr &message) {
   rviz_goal_pose = *message;
   vec_rviz_goals.push_back(rviz_goal_pose);
 }
 
 void rviz_conops_callback(
-    const kaist_drone_msgs::BehaviorNGoalArray::ConstPtr& message) {
+    const kaist_drone_msgs::BehaviorNGoalArray::ConstPtr &message) {
   rviz_goal_list = *message;
   current_wpt_idx = 0;
   rviz_conops_callback_flg = true;
   std::cout << "rviz_conops_callback" << std::endl;
 }
 
-void current_pose_callback(const nav_msgs::Odometry::ConstPtr& message) {
+void current_pose_callback(const nav_msgs::Odometry::ConstPtr &message) {
   current_pose.position.x = message->pose.pose.position.x;
   current_pose.position.y = message->pose.pose.position.y;
   current_pose.position.z = message->pose.pose.position.z;
@@ -106,30 +106,29 @@ void current_pose_callback(const nav_msgs::Odometry::ConstPtr& message) {
     current_pose.orientation.w = 0.0001;
   }
 
-  tf::Quaternion quat(current_pose.orientation.x,
-                      current_pose.orientation.y,
-                      current_pose.orientation.z,
-                      current_pose.orientation.w);
+  tf::Quaternion quat(current_pose.orientation.x, current_pose.orientation.y,
+                      current_pose.orientation.z, current_pose.orientation.w);
   double global_roll, global_pitch, global_yaw;
   tf::Matrix3x3(quat).getRPY(global_roll, global_pitch, global_yaw);
   current_heading_yaw_inGlobalCoor = global_yaw;
 }
 
-std::tuple<double, double, double> bodyCoordinateToGlobal(
-    double body_x, double body_y, double body_z, double altitude_limit = 2.5) {
+std::tuple<double, double, double>
+bodyCoordinateToGlobal(double body_x, double body_y, double body_z,
+                       double altitude_limit = 2.5) {
   double global_x, global_y, global_z;
   double body_vec_mag = sqrt(body_x * body_x + body_y * body_y);
 
   // global_x = current_pose.position.x +
-  body_vec_mag* cos(current_heading_yaw_inGlobalCoor);
+  body_vec_mag *cos(current_heading_yaw_inGlobalCoor);
   global_x = current_pose.position.x +
-      body_x * cos(current_heading_yaw_inGlobalCoor) -
-      body_y * sin(current_heading_yaw_inGlobalCoor);
+             body_x * cos(current_heading_yaw_inGlobalCoor) -
+             body_y * sin(current_heading_yaw_inGlobalCoor);
   //  global_y = current_pose.position.y +
-  body_vec_mag* sin(current_heading_yaw_inGlobalCoor);
+  body_vec_mag *sin(current_heading_yaw_inGlobalCoor);
   global_y = current_pose.position.y +
-      body_x * sin(current_heading_yaw_inGlobalCoor) +
-      body_y * cos(current_heading_yaw_inGlobalCoor);
+             body_x * sin(current_heading_yaw_inGlobalCoor) +
+             body_y * cos(current_heading_yaw_inGlobalCoor);
   global_z = current_pose.position.z + body_z;
 
   if (global_z > altitude_limit) {
@@ -139,54 +138,56 @@ std::tuple<double, double, double> bodyCoordinateToGlobal(
   return make_tuple(global_x, global_y, global_z);
 }
 
-std::tuple<double, double, double> globalCoordinateToBody(
-    double target_global_x, double target_global_y, double target_global_z) {
+std::tuple<double, double, double>
+globalCoordinateToBody(double target_global_x, double target_global_y,
+                       double target_global_z) {
   double local_x = cos(-current_heading_yaw_inGlobalCoor) *
-          (target_global_x - current_pose.position.x) -
-      sin(-current_heading_yaw_inGlobalCoor) *
-          (target_global_y - current_pose.position.y);
+                       (target_global_x - current_pose.position.x) -
+                   sin(-current_heading_yaw_inGlobalCoor) *
+                       (target_global_y - current_pose.position.y);
   double local_y = sin(-current_heading_yaw_inGlobalCoor) *
-          (target_global_x - current_pose.position.x) +
-      cos(-current_heading_yaw_inGlobalCoor) *
-          (target_global_y - current_pose.position.y);
+                       (target_global_x - current_pose.position.x) +
+                   cos(-current_heading_yaw_inGlobalCoor) *
+                       (target_global_y - current_pose.position.y);
   double local_z = target_global_z - current_pose.position.z;
 
   return make_tuple(local_x, local_y, local_z);
 }
 
 std::tuple<double, double, double>
-genRandomWPTwithInLocalCoor(double range_x_local_min,
-                            double range_x_local_max,
-                            double range_y_local_min,
-                            double range_y_local_max,
+genRandomWPTwithInLocalCoor(double range_x_local_min, double range_x_local_max,
+                            double range_y_local_min, double range_y_local_max,
                             double range_z_local_min,
                             double range_z_local_max) {
-  double random_wpt_x = range_x_local_min +
+  double random_wpt_x =
+      range_x_local_min +
       (rand() % static_cast<int>(range_x_local_max - range_x_local_min + 1));
 
-  double random_wpt_y = range_y_local_min +
+  double random_wpt_y =
+      range_y_local_min +
       (rand() % static_cast<int>(range_y_local_max - range_y_local_min + 1));
 
-  double random_wpt_z = range_z_local_min +
+  double random_wpt_z =
+      range_z_local_min +
       (rand() % static_cast<int>(range_z_local_max - range_z_local_min + 1));
 
   return bodyCoordinateToGlobal(random_wpt_x, random_wpt_y, random_wpt_z);
 };
 
-std::tuple<double, double, double>
-genRandomWPTwithInGlobalCoor(double range_x_global_min,
-                             double range_x_global_max,
-                             double range_y_global_min,
-                             double range_y_global_max,
-                             double range_z_global_min,
-                             double range_z_global_max) {
-  double random_wpt_x = range_x_global_min +
+std::tuple<double, double, double> genRandomWPTwithInGlobalCoor(
+    double range_x_global_min, double range_x_global_max,
+    double range_y_global_min, double range_y_global_max,
+    double range_z_global_min, double range_z_global_max) {
+  double random_wpt_x =
+      range_x_global_min +
       (rand() % static_cast<int>(range_x_global_max - range_x_global_min + 1));
 
-  double random_wpt_y = range_y_global_min +
+  double random_wpt_y =
+      range_y_global_min +
       (rand() % static_cast<int>(range_y_global_max - range_y_global_min + 1));
 
-  double random_wpt_z = range_z_global_min +
+  double random_wpt_z =
+      range_z_global_min +
       (rand() % static_cast<int>(range_z_global_max - range_z_global_min + 1));
 
   return std::make_tuple(random_wpt_x, random_wpt_y, random_wpt_z);
@@ -280,7 +281,7 @@ parse3DCsvFile(string inputFileName) {
   return data;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   ros::init(argc, argv, "random_wpt_generator");
   ROS_INFO("Initiated random_wpt_generator_node");
 
@@ -344,6 +345,11 @@ int main(int argc, char** argv) {
 
   vector<vector<double>> wpt_xy;
 
+  std::cout << "rviz_conops : " << rviz_conops << std::endl;
+  std::cout << "random_wpt_generation_mode : " << random_wpt_generation_mode
+            << std::endl;
+  std::cout << "wpt_file_path : " << wpt_file_path << std::endl;
+
   if (rviz_conops == "conops_rviz") {
   } else {
     if (random_wpt_generation_mode == false) {
@@ -376,13 +382,10 @@ int main(int argc, char** argv) {
         current_pose.position.z = 0.0;
         current_heading_yaw_inGlobalCoor = 0.0;
         for (int wpt_idx = 0; wpt_idx < num_wpt; wpt_idx++) {
-          auto random_wpt_in_global_coor =
-              genRandomWPTwithInLocalCoor(random_generation_body_x_min,
-                                          random_generation_body_x_max,
-                                          random_generation_body_y_min,
-                                          random_generation_body_y_max,
-                                          random_generation_body_z_min,
-                                          random_generation_body_z_max);
+          auto random_wpt_in_global_coor = genRandomWPTwithInLocalCoor(
+              random_generation_body_x_min, random_generation_body_x_max,
+              random_generation_body_y_min, random_generation_body_y_max,
+              random_generation_body_z_min, random_generation_body_z_max);
           wpt_xyz_global_coor.push_back(random_wpt_in_global_coor);
 
           current_heading_yaw_inGlobalCoor += std::atan2(
@@ -416,13 +419,10 @@ int main(int argc, char** argv) {
         if (num_wpt > max_num_wpt)
           num_wpt = max_num_wpt;
         for (int wpt_idx = 0; wpt_idx < num_wpt; wpt_idx++) {
-          auto random_wpt_in_global_coor =
-              genRandomWPTwithInGlobalCoor(random_generation_global_x_min,
-                                           random_generation_global_x_max,
-                                           random_generation_global_y_min,
-                                           random_generation_global_y_max,
-                                           random_generation_global_z_min,
-                                           random_generation_global_z_max);
+          auto random_wpt_in_global_coor = genRandomWPTwithInGlobalCoor(
+              random_generation_global_x_min, random_generation_global_x_max,
+              random_generation_global_y_min, random_generation_global_y_max,
+              random_generation_global_z_min, random_generation_global_z_max);
           wpt_xyz_global_coor.push_back(random_wpt_in_global_coor);
         }
         if (wpt_xyz_global_coor.size() == 0) {
