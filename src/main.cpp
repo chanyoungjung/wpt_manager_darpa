@@ -1,36 +1,34 @@
+#include <algorithm>
+#include <boost/algorithm/string.hpp>
+#include <cmath>
 #include <cstdlib> // rand and srand
 #include <ctime>
 #include <float.h>
+#include <fstream>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <math.h>
+#include <mutex>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
+#include <queue>
 #include <random>
 #include <ros/ros.h>
-#include <nav_msgs/Path.h>
 #include <sensor_msgs/BatteryState.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Int8.h>
+#include <string>
 #include <tf/tf.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_listener.h>
-#include <visualization_msgs/Marker.h>
-#include <visualization_msgs/MarkerArray.h>
-#include <algorithm>
-#include <boost/algorithm/string.hpp>
-#include <cmath>
-#include <ctime>
-#include <fstream>
-#include <mutex>
-#include <queue>
-#include <string>
 #include <tuple>
 #include <typeinfo>
 #include <vector>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 #include <kaist_drone_msgs/BehaviorNGoal.h>
 #include <kaist_drone_msgs/BehaviorNGoalArray.h>
@@ -59,11 +57,20 @@ using namespace std;
 // #define Height_Compensate_Factor=3;
 #define BATTERY_LOW_THRES 0.2
 #define TAKE_OFF_THRES 0.3
+#define COMEBACK_MAX_TRAVEL_RANGE 700.0
+
+kaist_drone_msgs::BehaviorNGoal msg_ref;
+
 nav_msgs::Path astarpath;
 geometry_msgs::Pose current_pose;
+geometry_msgs::Pose past_pose;
+bool pose_callback_first_run = true;
+bool comeback_triggered = false;
+
 geometry_msgs::PoseStamped rviz_goal_pose;
 std::vector<geometry_msgs::PoseStamped> vec_rviz_goals;
 kaist_drone_msgs::BehaviorNGoalArray rviz_goal_list;
+kaist_drone_msgs::BehaviorNGoalArray backtracking_goal_list;
 double current_heading_yaw_inGlobalCoor;
 bool is_land = false;
 int random_cnt = 0;
@@ -82,17 +89,24 @@ double max_x;
 double min_x;
 double look_ahead_dist = 2.0;
 double astar_resolution = 0.1;
-int look_ahead_ind = look_ahead_dist/astar_resolution;
-double sub_goal_local_x =0;
-double sub_goal_local_y =0;
-double sub_goal_global_x=0;
-double sub_goal_global_y=0;
+int look_ahead_ind = look_ahead_dist / astar_resolution;
+double sub_goal_local_x = 0;
+double sub_goal_local_y = 0;
+double sub_goal_global_x = 0;
+double sub_goal_global_y = 0;
 ros::Time last_request;
 double estimated_time = 0;
 bool rviz_conops_callback_flg = false;
 double LPF_gain = 0.02;
 double orig_z = 0;
 double prev_z = 0;
+
+int COMEBACK_LANDING_CNT_THRES = 100;
+int comeback_landing_cnt = 0;
+
+double travel_dist = 0.0;
+double tmp_travel_dist = 0.0;
+
 enum FLIGHT_SERVICE_TYPE {
   TAKE_OFF = 1,
   LANDING,
@@ -101,63 +115,64 @@ enum FLIGHT_SERVICE_TYPE {
   HOVERING
 };
 std::shared_ptr<low_pass_filter> lpf;
-void astar_callback(const nav_msgs::Path::ConstPtr& message) {
+void astar_callback(const nav_msgs::Path::ConstPtr &message) {
   astarpath = *message;
-  if (astarpath.poses.size()>=look_ahead_ind){
-    sub_goal_local_x = astarpath.poses[look_ahead_ind-1].pose.position.x;
-    sub_goal_local_y = astarpath.poses[look_ahead_ind-1].pose.position.y;
-  sub_goal_global_x = current_pose.position.x +
-      sub_goal_local_x * cos(current_heading_yaw_inGlobalCoor) -
-      sub_goal_local_y * sin(current_heading_yaw_inGlobalCoor);
-  //  global_y = current_pose.position.y +
-  // body_vec_mag* sin(current_heading_yaw_inGlobalCoor);
-  sub_goal_global_y = current_pose.position.y +
-      sub_goal_local_x * sin(current_heading_yaw_inGlobalCoor) +
-      sub_goal_local_y * cos(current_heading_yaw_inGlobalCoor);
-  }
-  else{
+  if (astarpath.poses.size() >= look_ahead_ind) {
+    sub_goal_local_x = astarpath.poses[look_ahead_ind - 1].pose.position.x;
+    sub_goal_local_y = astarpath.poses[look_ahead_ind - 1].pose.position.y;
+    sub_goal_global_x =
+        current_pose.position.x +
+        sub_goal_local_x * cos(current_heading_yaw_inGlobalCoor) -
+        sub_goal_local_y * sin(current_heading_yaw_inGlobalCoor);
+    //  global_y = current_pose.position.y +
+    // body_vec_mag* sin(current_heading_yaw_inGlobalCoor);
+    sub_goal_global_y =
+        current_pose.position.y +
+        sub_goal_local_x * sin(current_heading_yaw_inGlobalCoor) +
+        sub_goal_local_y * cos(current_heading_yaw_inGlobalCoor);
+  } else {
     sub_goal_global_x = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-                  .goal_pt_in_global.pose.position.x;
+                            .goal_pt_in_global.pose.position.x;
     sub_goal_global_y = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-                  .goal_pt_in_global.pose.position.y;
+                            .goal_pt_in_global.pose.position.y;
   }
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void z_max_callback(const std_msgs::Int8::ConstPtr& message) {
+void z_max_callback(const std_msgs::Int8::ConstPtr &message) {
   max_z = message->data;
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void z_min_callback(const std_msgs::Int8::ConstPtr& message) {
+void z_min_callback(const std_msgs::Int8::ConstPtr &message) {
   min_z = message->data;
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void x_max_callback(const std_msgs::Int8::ConstPtr& message) {
+void x_max_callback(const std_msgs::Int8::ConstPtr &message) {
   max_x = message->data;
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void x_min_callback(const std_msgs::Int8::ConstPtr& message) {
+void x_min_callback(const std_msgs::Int8::ConstPtr &message) {
   min_x = message->data;
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void y_max_callback(const std_msgs::Int8::ConstPtr& message) {
+void y_max_callback(const std_msgs::Int8::ConstPtr &message) {
   max_y = message->data;
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void y_min_callback(const std_msgs::Int8::ConstPtr& message) {
+void y_min_callback(const std_msgs::Int8::ConstPtr &message) {
   min_y = message->data;
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void rviz_goal_callback(const geometry_msgs::PoseStamped::ConstPtr& message) {
+void rviz_goal_callback(const geometry_msgs::PoseStamped::ConstPtr &message) {
   rviz_goal_pose = *message;
   vec_rviz_goals.push_back(rviz_goal_pose);
   is_land = false;
   is_hover = false;
 }
-void land_callback(const std_msgs::Bool::ConstPtr& message) {
+void land_callback(const std_msgs::Bool::ConstPtr &message) {
   is_land = message->data;
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
-void skip_callback(const std_msgs::Bool::ConstPtr& message) {
+void skip_callback(const std_msgs::Bool::ConstPtr &message) {
   // if (rviz_goal_list.behavior_n_goal_array[current_wpt_idx].mode ==
   //     WPT_FOLLOWING) {
   is_skip = message->data;
@@ -165,34 +180,33 @@ void skip_callback(const std_msgs::Bool::ConstPtr& message) {
   // vec_rviz_goals.push_back(rviz_goal_pose);
 }
 void rviz_conops_callback(
-    const kaist_drone_msgs::BehaviorNGoalArray::ConstPtr& message) {
-  rviz_goal_list = *message;
-  current_wpt_idx = 0;
-  // rviz_conops_callback_flg = true;
-  last_request = ros::Time::now();
-  dist_next_goal_to_robot =
-      sqrt(pow(rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-                       .goal_pt_in_global.pose.position.x -
-                   current_pose.position.x,
-               2) +
-           pow(rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-                       .goal_pt_in_global.pose.position.y -
-                   current_pose.position.y,
-               2) +
-           pow(rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-                       .goal_pt_in_global.pose.position.z -
-                   current_pose.position.z,
-               2));
-  estimated_time = dist_next_goal_to_robot / 0.5;
-  // orig_z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-  //              .goal_pt_in_global.pose.position.z;
-  prev_z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-               .goal_pt_in_global.pose.position.z;
-  std::cout << "rviz_conops_callback" << std::endl;
-  rviz_conops_callback_flg = true;
+    const kaist_drone_msgs::BehaviorNGoalArray::ConstPtr &message) {
+  if (comeback_triggered == false) {
+    rviz_goal_list = *message;
+    current_wpt_idx = 0;
+    // rviz_conops_callback_flg = true;
+    last_request = ros::Time::now();
+    dist_next_goal_to_robot =
+        sqrt(pow(rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
+                         .goal_pt_in_global.pose.position.x -
+                     current_pose.position.x,
+                 2) +
+             pow(rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
+                         .goal_pt_in_global.pose.position.y -
+                     current_pose.position.y,
+                 2) +
+             pow(rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
+                         .goal_pt_in_global.pose.position.z -
+                     current_pose.position.z,
+                 2));
+    estimated_time = dist_next_goal_to_robot / 0.5;
+    prev_z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
+                 .goal_pt_in_global.pose.position.z;
+    rviz_conops_callback_flg = true;
+  }
 }
 
-void current_pose_callback(const nav_msgs::Odometry::ConstPtr& message) {
+void current_pose_callback(const nav_msgs::Odometry::ConstPtr &message) {
   current_pose.position.x = message->pose.pose.position.x;
   current_pose.position.y = message->pose.pose.position.y;
   current_pose.position.z = message->pose.pose.position.z;
@@ -200,6 +214,11 @@ void current_pose_callback(const nav_msgs::Odometry::ConstPtr& message) {
   current_pose.orientation.y = message->pose.pose.orientation.y;
   current_pose.orientation.z = message->pose.pose.orientation.z;
   current_pose.orientation.w = message->pose.pose.orientation.w;
+
+  if (pose_callback_first_run) {
+    past_pose = current_pose;
+    pose_callback_first_run = false;
+  }
 
   if (current_pose.orientation.x == 0 && current_pose.orientation.y == 0 &&
       current_pose.orientation.z == 0 && current_pose.orientation.w == 0) {
@@ -209,30 +228,82 @@ void current_pose_callback(const nav_msgs::Odometry::ConstPtr& message) {
     current_pose.orientation.w = 0.0001;
   }
 
-  tf::Quaternion quat(current_pose.orientation.x,
-                      current_pose.orientation.y,
-                      current_pose.orientation.z,
-                      current_pose.orientation.w);
+  tf::Quaternion quat(current_pose.orientation.x, current_pose.orientation.y,
+                      current_pose.orientation.z, current_pose.orientation.w);
   double global_roll, global_pitch, global_yaw;
   tf::Matrix3x3(quat).getRPY(global_roll, global_pitch, global_yaw);
   current_heading_yaw_inGlobalCoor = global_yaw;
+
+  if (rviz_conops_callback_flg == true && comeback_triggered == false) {
+    if (rviz_goal_list.behavior_n_goal_array[current_wpt_idx].mode ==
+        rviz_goal_list.behavior_n_goal_array[current_wpt_idx].WPT_FOLLOWING) {
+      double dist_diff =
+          sqrt(pow(current_pose.position.x - past_pose.position.x, 2) +
+               pow(current_pose.position.y - past_pose.position.y, 2) +
+               pow(current_pose.position.z - past_pose.position.z, 2));
+
+      tmp_travel_dist += dist_diff;
+      if (tmp_travel_dist > 5.0) {
+        tmp_travel_dist = 0.0;
+
+        kaist_drone_msgs::BehaviorNGoal bNg;
+        bNg.goal_pt_in_global.pose.position.x = current_pose.position.x;
+        bNg.goal_pt_in_global.pose.position.y = current_pose.position.y;
+        bNg.goal_pt_in_global.pose.position.z = current_pose.position.z;
+        bNg.mode = bNg.WPT_FOLLOWING;
+
+        backtracking_goal_list.behavior_n_goal_array.insert(
+            backtracking_goal_list.behavior_n_goal_array.begin(), bNg);
+      }
+      travel_dist += dist_diff;
+      if (travel_dist > COMEBACK_MAX_TRAVEL_RANGE) {
+        comeback_triggered = true;
+
+        kaist_drone_msgs::BehaviorNGoal bNg;
+        bNg.goal_pt_in_global.pose.position.x = -2.0;
+        bNg.goal_pt_in_global.pose.position.y = 0.0;
+        bNg.goal_pt_in_global.pose.position.z = 0.0;
+        bNg.mode = bNg.LAND;
+        backtracking_goal_list.behavior_n_goal_array.push_back(bNg);
+
+        // clear and then paste
+        rviz_goal_list.behavior_n_goal_array.clear();
+        current_wpt_idx = 0;
+        rviz_goal_list = backtracking_goal_list;
+      }
+    }
+  }
+
+  if (sqrt(pow(current_pose.position.x, 2) + pow(current_pose.position.y, 2)) <
+          3.0 &&
+      current_pose.position.z < 0.3 &&
+      rviz_goal_list.behavior_n_goal_array[current_wpt_idx].mode ==
+          rviz_goal_list.behavior_n_goal_array[current_wpt_idx].LAND &&
+      comeback_landing_cnt > COMEBACK_LANDING_CNT_THRES) {
+    comeback_triggered = false;
+    backtracking_goal_list.behavior_n_goal_array.clear();
+    rviz_goal_list.behavior_n_goal_array.clear();
+  }
+
+  past_pose = current_pose;
 }
 
-std::tuple<double, double, double> bodyCoordinateToGlobal(
-    double body_x, double body_y, double body_z, double altitude_limit = 2.5) {
+std::tuple<double, double, double>
+bodyCoordinateToGlobal(double body_x, double body_y, double body_z,
+                       double altitude_limit = 2.5) {
   double global_x, global_y, global_z;
   double body_vec_mag = sqrt(body_x * body_x + body_y * body_y);
 
   // global_x = current_pose.position.x +
-  body_vec_mag* cos(current_heading_yaw_inGlobalCoor);
+  body_vec_mag *cos(current_heading_yaw_inGlobalCoor);
   global_x = current_pose.position.x +
-      body_x * cos(current_heading_yaw_inGlobalCoor) -
-      body_y * sin(current_heading_yaw_inGlobalCoor);
+             body_x * cos(current_heading_yaw_inGlobalCoor) -
+             body_y * sin(current_heading_yaw_inGlobalCoor);
   //  global_y = current_pose.position.y +
-  body_vec_mag* sin(current_heading_yaw_inGlobalCoor);
+  body_vec_mag *sin(current_heading_yaw_inGlobalCoor);
   global_y = current_pose.position.y +
-      body_x * sin(current_heading_yaw_inGlobalCoor) +
-      body_y * cos(current_heading_yaw_inGlobalCoor);
+             body_x * sin(current_heading_yaw_inGlobalCoor) +
+             body_y * cos(current_heading_yaw_inGlobalCoor);
   global_z = current_pose.position.z + body_z;
 
   if (global_z > altitude_limit) {
@@ -242,54 +313,56 @@ std::tuple<double, double, double> bodyCoordinateToGlobal(
   return make_tuple(global_x, global_y, global_z);
 }
 
-std::tuple<double, double, double> globalCoordinateToBody(
-    double target_global_x, double target_global_y, double target_global_z) {
+std::tuple<double, double, double>
+globalCoordinateToBody(double target_global_x, double target_global_y,
+                       double target_global_z) {
   double local_x = cos(-current_heading_yaw_inGlobalCoor) *
-          (target_global_x - current_pose.position.x) -
-      sin(-current_heading_yaw_inGlobalCoor) *
-          (target_global_y - current_pose.position.y);
+                       (target_global_x - current_pose.position.x) -
+                   sin(-current_heading_yaw_inGlobalCoor) *
+                       (target_global_y - current_pose.position.y);
   double local_y = sin(-current_heading_yaw_inGlobalCoor) *
-          (target_global_x - current_pose.position.x) +
-      cos(-current_heading_yaw_inGlobalCoor) *
-          (target_global_y - current_pose.position.y);
+                       (target_global_x - current_pose.position.x) +
+                   cos(-current_heading_yaw_inGlobalCoor) *
+                       (target_global_y - current_pose.position.y);
   double local_z = target_global_z - current_pose.position.z;
 
   return make_tuple(local_x, local_y, local_z);
 }
 
 std::tuple<double, double, double>
-genRandomWPTwithInLocalCoor(double range_x_local_min,
-                            double range_x_local_max,
-                            double range_y_local_min,
-                            double range_y_local_max,
+genRandomWPTwithInLocalCoor(double range_x_local_min, double range_x_local_max,
+                            double range_y_local_min, double range_y_local_max,
                             double range_z_local_min,
                             double range_z_local_max) {
-  double random_wpt_x = range_x_local_min +
+  double random_wpt_x =
+      range_x_local_min +
       (rand() % static_cast<int>(range_x_local_max - range_x_local_min + 1));
 
-  double random_wpt_y = range_y_local_min +
+  double random_wpt_y =
+      range_y_local_min +
       (rand() % static_cast<int>(range_y_local_max - range_y_local_min + 1));
 
-  double random_wpt_z = range_z_local_min +
+  double random_wpt_z =
+      range_z_local_min +
       (rand() % static_cast<int>(range_z_local_max - range_z_local_min + 1));
 
   return bodyCoordinateToGlobal(random_wpt_x, random_wpt_y, random_wpt_z);
 };
 
-std::tuple<double, double, double>
-genRandomWPTwithInGlobalCoor(double range_x_global_min,
-                             double range_x_global_max,
-                             double range_y_global_min,
-                             double range_y_global_max,
-                             double range_z_global_min,
-                             double range_z_global_max) {
-  double random_wpt_x = range_x_global_min +
+std::tuple<double, double, double> genRandomWPTwithInGlobalCoor(
+    double range_x_global_min, double range_x_global_max,
+    double range_y_global_min, double range_y_global_max,
+    double range_z_global_min, double range_z_global_max) {
+  double random_wpt_x =
+      range_x_global_min +
       (rand() % static_cast<int>(range_x_global_max - range_x_global_min + 1));
 
-  double random_wpt_y = range_y_global_min +
+  double random_wpt_y =
+      range_y_global_min +
       (rand() % static_cast<int>(range_y_global_max - range_y_global_min + 1));
 
-  double random_wpt_z = range_z_global_min +
+  double random_wpt_z =
+      range_z_global_min +
       (rand() % static_cast<int>(range_z_global_max - range_z_global_min + 1));
 
   return std::make_tuple(random_wpt_x, random_wpt_y, random_wpt_z);
@@ -383,12 +456,12 @@ parse3DCsvFile(string inputFileName) {
   return data;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   ros::init(argc, argv, "random_wpt_generator");
   ROS_INFO("Initiated random_wpt_generator_node");
 
   ros::NodeHandle nh("~");
-  double spin_hz = 50; //hz
+  double spin_hz = 50; // hz
   ros::Rate r(spin_hz);
 
   bool random_wpt_generation_mode;
@@ -437,10 +510,8 @@ int main(int argc, char** argv) {
   nh.getParam("random_generation_global_y_max", random_generation_global_y_max);
   nh.getParam("random_generation_global_z_min", random_generation_global_z_min);
   nh.getParam("random_generation_global_z_max", random_generation_global_z_max);
-
   nh.getParam("conop_takeoff_z", conop_takeoff_z);
   nh.getParam("conop_flight_fixed_z", conop_flight_fixed_z);
-
   nh.getParam("conops_rviz", rviz_conops);
 
   double lpf_cut_freq_hz;
@@ -453,12 +524,12 @@ int main(int argc, char** argv) {
   ros::Subscriber rviz_goal_pose_subscriber =
       nh.subscribe(rviz_goal_topic_name, 10, rviz_goal_callback);
 
-  if(spin_hz) {
-    lpf = std::make_shared<low_pass_filter>(1.0/spin_hz, lpf_cut_freq_hz, 0.0);
+  if (spin_hz) {
+    lpf =
+        std::make_shared<low_pass_filter>(1.0 / spin_hz, lpf_cut_freq_hz, 0.0);
   } else {
     lpf = std::make_shared<low_pass_filter>(0.01, 10.0, 0.0);
   }
-
 
   vector<vector<double>> wpt_xy;
   // ros::Time last_request = ros::Time::now();
@@ -495,13 +566,10 @@ int main(int argc, char** argv) {
         current_pose.position.z = 0.0;
         current_heading_yaw_inGlobalCoor = 0.0;
         for (int wpt_idx = 0; wpt_idx < num_wpt; wpt_idx++) {
-          auto random_wpt_in_global_coor =
-              genRandomWPTwithInLocalCoor(random_generation_body_x_min,
-                                          random_generation_body_x_max,
-                                          random_generation_body_y_min,
-                                          random_generation_body_y_max,
-                                          random_generation_body_z_min,
-                                          random_generation_body_z_max);
+          auto random_wpt_in_global_coor = genRandomWPTwithInLocalCoor(
+              random_generation_body_x_min, random_generation_body_x_max,
+              random_generation_body_y_min, random_generation_body_y_max,
+              random_generation_body_z_min, random_generation_body_z_max);
           wpt_xyz_global_coor.push_back(random_wpt_in_global_coor);
 
           current_heading_yaw_inGlobalCoor += std::atan2(
@@ -535,13 +603,10 @@ int main(int argc, char** argv) {
         if (num_wpt > max_num_wpt)
           num_wpt = max_num_wpt;
         for (int wpt_idx = 0; wpt_idx < num_wpt; wpt_idx++) {
-          auto random_wpt_in_global_coor =
-              genRandomWPTwithInGlobalCoor(random_generation_global_x_min,
-                                           random_generation_global_x_max,
-                                           random_generation_global_y_min,
-                                           random_generation_global_y_max,
-                                           random_generation_global_z_min,
-                                           random_generation_global_z_max);
+          auto random_wpt_in_global_coor = genRandomWPTwithInGlobalCoor(
+              random_generation_global_x_min, random_generation_global_x_max,
+              random_generation_global_y_min, random_generation_global_y_max,
+              random_generation_global_z_min, random_generation_global_z_max);
           wpt_xyz_global_coor.push_back(random_wpt_in_global_coor);
         }
         if (wpt_xyz_global_coor.size() == 0) {
@@ -589,7 +654,8 @@ int main(int argc, char** argv) {
   //////////////////////////////
   // PUBLISHER AND SUBSCRIBER //
   //////////////////////////////
-  ros::Subscriber astar_sub = nh.subscribe("/scout/astar_path_vis", 1, astar_callback);
+  ros::Subscriber astar_sub =
+      nh.subscribe("/scout/astar_path_vis", 1, astar_callback);
   ros::Subscriber z_min_sub = nh.subscribe("/minz", 10, z_min_callback);
   ros::Subscriber z_max_sub = nh.subscribe("/maxz", 10, z_max_callback);
   ros::Subscriber x_min_sub = nh.subscribe("/minx", 10, x_min_callback);
@@ -646,14 +712,8 @@ int main(int argc, char** argv) {
         } else if (current_wpt_idx >= wpt_xyz_global_coor.size()) {
           // ////////////
           // Landing mode
+          // ////////////
           if (random_generation_coordination != "conops") {
-            // pt_msg.header.frame_id = "odom";
-            // pt_msg.pose.position.x = wpt_x;
-            // pt_msg.pose.position.y = wpt_y;
-            // pt_msg.pose.position.z = wpt_z;
-            // msg.goal_pt_in_global = pt_msg;
-            // msg.mode = msg.LAND;
-            // local_goal_publisher.publish(msg);
           } else {
             double wpt_x = std::get<0>(wpt_xyz_global_coor[current_wpt_idx]);
             double wpt_y = std::get<1>(wpt_xyz_global_coor[current_wpt_idx]);
@@ -801,8 +861,6 @@ int main(int argc, char** argv) {
                              current_pose.position.z,
                          2));
             estimated_time = dist_next_goal_to_robot / 0.5;
-            // orig_z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-            //              .goal_pt_in_global.pose.position.z;
             prev_z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
                          .goal_pt_in_global.pose.position.z;
           }
@@ -818,7 +876,7 @@ int main(int argc, char** argv) {
           pt_msg.header.frame_id = "odom";
 
           sub_pt_msg.header.stamp = ros::Time::now();
-          sub_pt_msg.header.frame_id = "odom";  
+          sub_pt_msg.header.frame_id = "odom";
 
           pt_msg.pose.position.x =
               rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
@@ -830,57 +888,29 @@ int main(int argc, char** argv) {
               (rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
                    .goal_pt_in_global.pose.position.z);
 
-          sub_pt_msg.pose.position.x =sub_goal_global_x;
-          sub_pt_msg.pose.position.y =sub_goal_global_y;
+          sub_pt_msg.pose.position.x = sub_goal_global_x;
+          sub_pt_msg.pose.position.y = sub_goal_global_y;
           sub_pt_msg.pose.position.z =
               (rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
                    .goal_pt_in_global.pose.position.z);
 
           local_x = cos(-current_heading_yaw_inGlobalCoor) *
-                  (pt_msg.pose.position.x - current_pose.position.x) -
-              sin(-current_heading_yaw_inGlobalCoor) *
-                  (pt_msg.pose.position.y - current_pose.position.y);
+                        (pt_msg.pose.position.x - current_pose.position.x) -
+                    sin(-current_heading_yaw_inGlobalCoor) *
+                        (pt_msg.pose.position.y - current_pose.position.y);
           local_y = sin(-current_heading_yaw_inGlobalCoor) *
-                  (pt_msg.pose.position.x - current_pose.position.x) +
-              cos(-current_heading_yaw_inGlobalCoor) *
-                  (pt_msg.pose.position.y - current_pose.position.y);
+                        (pt_msg.pose.position.x - current_pose.position.x) +
+                    cos(-current_heading_yaw_inGlobalCoor) *
+                        (pt_msg.pose.position.y - current_pose.position.y);
           local_z = pt_msg.pose.position.z - current_pose.position.z;
 
           if ((pt_msg.pose.position.z <= max_z) &&
               (pt_msg.pose.position.z >= min_z)) {
+          } else {
+            pt_msg.pose.position.z = (max_z + min_z) / 2;
           }
-          // else if(pt_msg.pose.position.z>max_z){
-          //   pt_msg.pose.position.z = min_z + 2*(max_z + min_z)/3;
-          // }
-          else {
-            pt_msg.pose.position.z = (max_z + min_z)/2;
-          }
-          // pt_msg.pose.position.z = pt_msg.pose.position.z + min_z;
-
-          // Apply LPF to altitude command
-          // if (use_height_command_lpf) {
-          //   lpf->getFilteredValue(pt_msg.pose.position.z);
-          // }
-
-          // if ((local_y <= max_y) && (local_y >= min_y)) {
-          // } else {
-          //   local_y = (max_y + min_y) / 2;
-          // }
-          // if (local_x >= max_x) {
-          //   local_x = max_x;
-          // }
-          // pt_msg.pose.position.x = current_pose.position.x +
-          //     local_x * cos(current_heading_yaw_inGlobalCoor) -
-          //     local_y * sin(current_heading_yaw_inGlobalCoor);
-          // pt_msg.pose.position.y = current_pose.position.y +
-          //     local_x * sin(current_heading_yaw_inGlobalCoor) +
-          //     local_y * cos(current_heading_yaw_inGlobalCoor);
           prev_z = pt_msg.pose.position.z;
           msg.goal_pt_in_global = pt_msg;
-          // double dist_goal_to_robot =
-          //     sqrt(pow(pt_msg.pose.position.x - current_pose.position.x, 2) +
-          //          pow(pt_msg.pose.position.y - current_pose.position.y, 2) +
-          //          pow(pt_msg.pose.position.z - current_pose.position.z, 2));
           double dist_goal_to_robot =
               sqrt(pow(pt_msg.pose.position.x - current_pose.position.x, 2) +
                    pow(pt_msg.pose.position.y - current_pose.position.y, 2));
@@ -894,19 +924,8 @@ int main(int argc, char** argv) {
 
           local_goal_publisher.publish(msg);
 
-          // double dist_goal_to_robot =
-          //     sqrt(pow(pt_msg.pose.position.x - current_pose.position.x, 2)
-          //     +
-          //          pow(pt_msg.pose.position.y - current_pose.position.y, 2)
-          //          + pow(pt_msg.pose.position.z - current_pose.position.z,
-          //          2));
-
-          // if ((dist_goal_to_robot < goal_arrived_boundary) ||
-          //     (is_skip == true)||
-          //     ((ros::Time::now() - last_request) >
-          //      ros::Duration(estimated_time))) {
           if ((dist_goal_to_robot < goal_arrived_boundary) ||
-              (is_skip == true)||
+              (is_skip == true) ||
               ((ros::Time::now() - last_request) >
                ros::Duration(estimated_time))) {
             // WPT arrived
@@ -934,8 +953,6 @@ int main(int argc, char** argv) {
                              current_pose.position.z,
                          2));
             estimated_time = dist_next_goal_to_robot / 0.5;
-            // orig_z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-            //              .goal_pt_in_global.pose.position.z;
             prev_z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
                          .goal_pt_in_global.pose.position.z;
 
@@ -949,7 +966,7 @@ int main(int argc, char** argv) {
         p.x = sub_goal_global_x;
         p.y = sub_goal_global_y;
         p.z = rviz_goal_list.behavior_n_goal_array[current_wpt_idx]
-                   .goal_pt_in_global.pose.position.z;
+                  .goal_pt_in_global.pose.position.z;
 
         marker.points.push_back(p);
         marker.header.frame_id = "/odom";
@@ -971,12 +988,9 @@ int main(int argc, char** argv) {
         marker.color.b = 1.0f;
         marker.color.a = 1.0;
         marker_array.markers.push_back(marker);
-        sub_goal_vis.publish(marker_array);                
+        sub_goal_vis.publish(marker_array);
         // is_land = false;
       } else {
-        // std::cout << " rviz conops behaviorNGoalArray is not subscribed
-        // yet"
-        //           << std::endl;
       }
       std::cout << (ros::Duration(estimated_time) -
                     (ros::Time::now() - last_request))
