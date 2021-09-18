@@ -262,6 +262,12 @@ void current_pose_callback(const nav_msgs::Odometry::ConstPtr &message) {
         kaist_drone_msgs::BehaviorNGoal bNg;
         bNg.goal_pt_in_global.pose.position.x = -2.0;
         bNg.goal_pt_in_global.pose.position.y = 0.0;
+        bNg.goal_pt_in_global.pose.position.z = 1.7;
+        bNg.mode = bNg.WPT_FOLLOWING;
+        backtracking_goal_list.behavior_n_goal_array.push_back(bNg);
+
+        bNg.goal_pt_in_global.pose.position.x = -2.0;
+        bNg.goal_pt_in_global.pose.position.y = 0.0;
         bNg.goal_pt_in_global.pose.position.z = 0.0;
         bNg.mode = bNg.LAND;
         backtracking_goal_list.behavior_n_goal_array.push_back(bNg);
