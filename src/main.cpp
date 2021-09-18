@@ -279,10 +279,15 @@ void current_pose_callback(const nav_msgs::Odometry::ConstPtr &message) {
       current_pose.position.z < 0.3 &&
       rviz_goal_list.behavior_n_goal_array[current_wpt_idx].mode ==
           rviz_goal_list.behavior_n_goal_array[current_wpt_idx].LAND &&
-      comeback_landing_cnt > COMEBACK_LANDING_CNT_THRES) {
-    comeback_triggered = false;
-    backtracking_goal_list.behavior_n_goal_array.clear();
-    rviz_goal_list.behavior_n_goal_array.clear();
+      comeback_triggered == true) {
+
+    comeback_landing_cnt++;
+
+    if (comeback_landing_cnt > COMEBACK_LANDING_CNT_THRES) {
+      comeback_triggered = false;
+      backtracking_goal_list.behavior_n_goal_array.clear();
+      rviz_goal_list.behavior_n_goal_array.clear();
+    }
   }
 
   past_pose = current_pose;
